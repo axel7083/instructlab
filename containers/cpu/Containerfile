@@ -1,0 +1,112 @@
+# vim: syntax=dockerfile expandtab tabstop=4 shiftwidth=4
+
+ARG OS_VERSION_MAJOR=9
+ARG BASE_IMAGE=quay.io/centos/centos:stream${OS_VERSION_MAJOR}
+
+FROM ${BASE_IMAGE}
+
+ARG OS_VERSION_MAJOR=9
+
+# /opt/app-root structure (same as s2i-core and ubi9/python-311)
+ENV APP_ROOT=/opt/app-root \
+    HOME=/opt/app-root/src \
+    PATH=/opt/app-root/src/bin:/opt/app-root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Python, pip, and virtual env settings
+ARG PYTHON_VERSION=3.11
+ENV PYTHON_VERSION=${PYTHON_VERSION} \
+    PYTHON=python${PYTHON_VERSION} \
+    PIP_NO_CACHE_DIR=off \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONIOENCODING=utf-8 \
+    VIRTUAL_ENV=${APP_ROOT} \
+    PS1="[instructlab \w]\$ "
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+
+ARG INSTRUCTLAB_PKG="instructlab"
+ARG INSTRUCTLAB_VERSION=''
+
+RUN dnf -y install --best --nodocs --setopt=install_weak_deps=False dnf-plugins-core \
+    && dnf config-manager --best --nodocs --setopt=install_weak_deps=False --save \
+    && dnf config-manager --enable crb \
+    && dnf install -y --nodocs \
+        alsa-lib \
+        asciidoc \
+        atlas \
+        bzip2 \
+        compat-openssl11 \
+        docbook-dtds \
+        docbook-style-xsl \
+        file \
+        findutils \
+        gdb \
+        git-core \
+        glibc-headers \
+        gnupg2 \
+        libjpeg-turbo \
+        libpng \
+        libsndfile \
+        libstdc++ \
+        jq \
+        libaio \
+        librdmacm \
+        libtiff \
+        libtool \
+        libuuid \
+        libyaml \
+        libxslt \
+        llvm \
+        make \
+        ncurses \
+        numactl \
+        openblas \
+        openblas-serial \
+        openmpi \
+        pango \
+        protobuf-compiler \
+        ${PYTHON} \
+        ${PYTHON}-devel \
+        ${PYTHON}-pip \
+        ${PYTHON}-setuptools-wheel \
+        skopeo \
+        snappy \
+        sudo \
+        tk \
+        unzip \
+        valgrind \
+        vim \
+        wget \
+        which \
+        lmdb \
+        cmake \
+        ninja-build \
+    && dnf clean all \
+    && ${PYTHON} -m venv --upgrade-deps ${VIRTUAL_ENV} \
+    && mkdir -p ${HOME}
+
+RUN source ${VIRTUAL_ENV}/bin/activate \
+    && git clone --depth 1 https://github.com/vllm-project/vllm \
+    && pip install -v -r vllm/requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu \
+    && git clone --depth 1 -b rls-v3.5 https://github.com/oneapi-src/oneDNN.git \
+    && cmake -B ./oneDNN/build -S ./oneDNN -G Ninja -DONEDNN_LIBRARY_TYPE=STATIC \
+        -DONEDNN_BUILD_DOC=OFF \
+        -DONEDNN_BUILD_EXAMPLES=OFF \
+        -DONEDNN_BUILD_TESTS=OFF \
+        -DONEDNN_BUILD_GRAPH=OFF \
+        -DONEDNN_ENABLE_WORKLOAD=INFERENCE \
+        -DONEDNN_ENABLE_PRIMITIVE=MATMUL \
+    && cmake --build ./oneDNN/build --target install --config Release
+    && VLLM_TARGET_DEVICE=cpu python vllm/setup.py install
+
+RUN source ${VIRTUAL_ENV}/bin/activate \
+    && if [ "${INSTRUCTLAB_VERSION}" != "" ] ; then \
+        INSTRUCTLAB_PKG="${INSTRUCTLAB_PKG}==${INSTRUCTLAB_VERSION}" ; \
+    fi \
+    && pip install flash_attn --no-build-isolation \
+    && pip install "${INSTRUCTLAB_PKG}"
+
+WORKDIR /instructlab
+ENTRYPOINT ["/bin/bash"]

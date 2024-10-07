@@ -24,6 +24,13 @@ CUDA_DEPS = \
 	$(COMMON_DEPS) \
 	$(NULL)
 
+CPU_CONTAINERFILE = $(CURDIR)/containers/cpu/Containerfile
+CPU_CONTEXT_DIR = $(CURDIR)/containers/cpu
+CPU_DEPS = \
+	$(CPU_CONTAINERFILE) \
+	$(COMMON_DEPS) \
+	$(NULL)
+
 HPU_CONTAINERFILE = $(CURDIR)/containers/hpu/Containerfile
 HPU_CONTEXT_DIR = $(CURDIR)/containers/hpu
 HPU_DEPS = \
@@ -73,6 +80,13 @@ cuda: check-engine $(CUDA_DEPS)  ## Build container for Nvidia CUDA
 		--build-arg INSTRUCTLAB_VERSION=$(INSTRUCTLAB_VERSION) \
 		-t $(CONTAINER_PREFIX):$@ \
 		$(CUDA_CONTEXT_DIR)
+
+.PHONY: cpu
+cpu: check-engine $(CPU_DEPS)  ## Build container for Nvidia CUDA
+	$(CENGINE) build $(BUILD_ARGS) \
+		--build-arg INSTRUCTLAB_VERSION=$(INSTRUCTLAB_VERSION) \
+		-t $(CONTAINER_PREFIX):$@ \
+		$(CPU_CONTEXT_DIR)
 
 # The base container uses uids beyond 65535. Rootless builds may not work
 # unless the user account has extended subordinate ids up to 2**24 - 1.
